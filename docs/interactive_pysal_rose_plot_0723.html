@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive PySAL Ecosystem Rose Plot</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .control-group label {
+            font-size: 12px;
+            font-weight: bold;
+            color: #555;
+        }
+        
+        input[type="range"] {
+            width: 150px;
+        }
+        
+        button {
+            padding: 8px 16px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        button:hover {
+            background: #2980b9;
+        }
+        
+        .chart-container {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+        }
+        
+        .chart-wrapper {
+            flex: 1;
+            position: relative;
+        }
+        
+        svg {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .legend {
+            min-width: 280px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .legend-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #2c3e50;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            cursor: pointer;
+            padding: 4px;
+            border-radius: 4px;
+            transition: background-color 0.2s;
+        }
+        
+        .legend-item:hover {
+            background-color: #e9ecef;
+        }
+        
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+            margin-right: 10px;
+            border: 1px solid #ddd;
+        }
+        
+        .legend-text {
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .stats-panel {
+            margin-top: 20px;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+        
+        .stats-title {
+            font-size: 16px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #2c3e50;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            font-size: 12px;
+        }
+        
+        .tooltip {
+            position: absolute;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            pointer-events: none;
+            z-index: 1000;
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="title">Interactive PySAL Ecosystem Rose Plot</div>
+            <div style="font-size: 14px; color: #666;">Drag dots to explore • Zoom with mouse wheel • Click legend to toggle modules</div>
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <label>Scale Factor</label>
+                <input type="range" id="scaleSlider" min="0.5" max="3" step="0.1" value="1">
+                <span id="scaleValue">1.0</span>
+            </div>
+            <div class="control-group">
+                <label>Line Width</label>
+                <input type="range" id="lineWidthSlider" min="1" max="5" step="0.5" value="2.5">
+                <span id="lineWidthValue">2.5</span>
+            </div>
+            <div class="control-group">
+                <label>Opacity</label>
+                <input type="range" id="opacitySlider" min="0.1" max="1" step="0.1" value="0.8">
+                <span id="opacityValue">0.8</span>
+            </div>
+            <button onclick="resetView()">Reset View</button>
+            <button onclick="toggleGrid()">Toggle Grid</button>
+        </div>
+        
+        <div class="chart-container">
+            <div class="chart-wrapper">
+                <svg id="rosePlot" width="800" height="800"></svg>
+                <div class="tooltip" id="tooltip"></div>
+            </div>
+            
+            <div class="legend">
+                <div class="legend-title">PySAL Modules</div>
+                <div id="legendItems"></div>
+                
+                <div class="stats-panel">
+                    <div class="stats-title">Performance Metrics Overview</div>
+                    <div class="stats-grid" id="statsGrid"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Data
+        const data = [
+            {module: 'access', last_week: 5173, last_month: 19964, stars: 25, forks: 15, age_years: 5.4, contributors: 13},
+            {module: 'esda', last_week: 14193, last_month: 49535, stars: 225, forks: 60, age_years: 8.4, contributors: 30},
+            {module: 'giddy', last_week: 9227, last_month: 48933, stars: 77, forks: 27, age_years: 8.2, contributors: 12},
+            {module: 'inequality', last_week: 4840, last_month: 18588, stars: 32, forks: 17, age_years: 7.0, contributors: 10},
+            {module: 'libpysal', last_week: 31342, last_month: 110860, stars: 275, forks: 80, age_years: 8.4, contributors: 30},
+            {module: 'mapclassify', last_week: 182775, last_month: 827665, stars: 146, forks: 32, age_years: 8.2, contributors: 23},
+            {module: 'mgwr', last_week: 6101, last_month: 22919, stars: 396, forks: 131, age_years: 7.4, contributors: 11},
+            {module: 'pointpats', last_week: 8977, last_month: 25914, stars: 91, forks: 30, age_years: 8.4, contributors: 15},
+            {module: 'pysal', last_week: 6504, last_month: 23325, stars: 1404, forks: 310, age_years: 12.4, contributors: 30},
+            {module: 'segregation', last_week: 5097, last_month: 20352, stars: 118, forks: 29, age_years: 6.6, contributors: 11},
+            {module: 'splot', last_week: 5353, last_month: 20649, stars: 100, forks: 27, age_years: 8.2, contributors: 30},
+            {module: 'spopt', last_week: 5125, last_month: 20200, stars: 339, forks: 55, age_years: 6.4, contributors: 19},
+            {module: 'spreg', last_week: 6898, last_month: 26681, stars: 79, forks: 26, age_years: 7.2, contributors: 18},
+            {module: 'spaghetti', last_week: 5323, last_month: 21430, stars: 276, forks: 73, age_years: 8.3, contributors: 17},
+            {module: 'spglm', last_week: 6118, last_month: 22747, stars: 34, forks: 23, age_years: 8.5, contributors: 18}
+        ];
+        
+        // Configuration
+        const features = ['last_week', 'last_month', 'stars', 'forks', 'age_years', 'contributors'];
+        const featureLabels = ['Downloads\n(Week)', 'Downloads\n(Month)', 'GitHub\nStars', 'GitHub\nForks', 'Age\n(Years)', 'Contributors'];
+        
+        // Colors for each module
+        const colors = [
+            '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+            '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+            '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5'
+        ];
+        
+        // SVG setup
+        const svg = document.getElementById('rosePlot');
+        const width = 800;
+        const height = 800;
+        const centerX = width / 2;
+        const centerY = height / 2;
+        const radius = Math.min(width, height) / 2 - 100;
+        
+        // State
+        let currentScale = 1;
+        let showGrid = true;
+        let visibleModules = new Set(data.map(d => d.module));
+        let isDragging = false;
+        let dragData = null;
+        
+        // Normalize data
+        function normalizeData() {
+            const normalized = [];
+            const mins = {};
+            const maxs = {};
+            
+            // Find min/max for each feature
+            features.forEach(feature => {
+                mins[feature] = Math.min(...data.map(d => d[feature]));
+                maxs[feature] = Math.max(...data.map(d => d[feature]));
+            });
+            
+            // Normalize each module
+            data.forEach(module => {
+                const normalizedModule = {...module};
+                features.forEach(feature => {
+                    const range = maxs[feature] - mins[feature];
+                    normalizedModule[feature] = range > 0 ? (module[feature] - mins[feature]) / range : 0;
+                });
+                normalized.push(normalizedModule);
+            });
+            
+            return normalized;
+        }
+        
+        const normalizedData = normalizeData();
+        
+        // Calculate angle for each feature
+        function getAngle(index) {
+            return (index * 2 * Math.PI / features.length) - Math.PI / 2;
+        }
+        
+        // Convert polar to cartesian coordinates
+        function polarToCartesian(angle, r) {
+            return {
+                x: centerX + r * Math.cos(angle),
+                y: centerY + r * Math.sin(angle)
+            };
+        }
+        
+        // Initialize SVG
+        function initSVG() {
+            svg.innerHTML = '';
+            
+            // Create main group
+            const mainGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            mainGroup.id = 'mainGroup';
+            svg.appendChild(mainGroup);
+            
+            // Draw grid circles
+            drawGrid();
+            
+            // Draw feature labels
+            drawFeatureLabels();
+            
+            // Draw modules
+            drawModules();
+            
+            // Add zoom functionality
+            addZoomFunctionality();
+        }
+        
+        function drawGrid() {
+            if (!showGrid) return;
+            
+            const gridGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            gridGroup.id = 'gridGroup';
+            
+            // Concentric circles
+            for (let i = 1; i <= 5; i++) {
+                const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                circle.setAttribute('cx', centerX);
+                circle.setAttribute('cy', centerY);
+                circle.setAttribute('r', radius * i / 5);
+                circle.setAttribute('fill', 'none');
+                circle.setAttribute('stroke', '#ddd');
+                circle.setAttribute('stroke-width', '1');
+                circle.setAttribute('opacity', '0.5');
+                gridGroup.appendChild(circle);
+            }
+            
+            // Radial lines
+            for (let i = 0; i < features.length; i++) {
+                const angle = getAngle(i);
+                const endPoint = polarToCartesian(angle, radius);
+                
+                const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                line.setAttribute('x1', centerX);
+                line.setAttribute('y1', centerY);
+                line.setAttribute('x2', endPoint.x);
+                line.setAttribute('y2', endPoint.y);
+                line.setAttribute('stroke', '#ddd');
+                line.setAttribute('stroke-width', '1');
+                line.setAttribute('opacity', '0.5');
+                gridGroup.appendChild(line);
+            }
+            
+            document.getElementById('mainGroup').appendChild(gridGroup);
+        }
+        
+        function drawFeatureLabels() {
+            const labelGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            labelGroup.id = 'labelGroup';
+            
+            features.forEach((feature, i) => {
+                const angle = getAngle(i);
+                const labelPoint = polarToCartesian(angle, radius + 30);
+                
+                const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+                text.setAttribute('x', labelPoint.x);
+                text.setAttribute('y', labelPoint.y);
+                text.setAttribute('text-anchor', 'middle');
+                text.setAttribute('dominant-baseline', 'central');
+                text.setAttribute('font-size', '12');
+                text.setAttribute('font-weight', 'bold');
+                text.setAttribute('fill', '#333');
+                
+                // Handle multiline labels
+                const lines = featureLabels[i].split('\n');
+                if (lines.length > 1) {
+                    lines.forEach((line, lineIndex) => {
+                        const tspan = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+                        tspan.setAttribute('x', labelPoint.x);
+                        tspan.setAttribute('dy', lineIndex === 0 ? '0' : '1.2em');
+                        tspan.textContent = line;
+                        text.appendChild(tspan);
+                    });
+                } else {
+                    text.textContent = featureLabels[i];
+                }
+                
+                labelGroup.appendChild(text);
+            });
+            
+            document.getElementById('mainGroup').appendChild(labelGroup);
+        }
+        
+        function drawModules() {
+            const moduleGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            moduleGroup.id = 'moduleGroup';
+            
+            normalizedData.forEach((module, moduleIndex) => {
+                if (!visibleModules.has(module.module)) return;
+                
+                const color = colors[moduleIndex];
+                const opacity = document.getElementById('opacitySlider').value;
+                const lineWidth = document.getElementById('lineWidthSlider').value;
+                
+                // Create paths for the polygon
+                let pathData = '';
+                const points = [];
+                
+                features.forEach((feature, featureIndex) => {
+                    const angle = getAngle(featureIndex);
+                    const value = module[feature] * currentScale;
+                    const r = Math.min(value * radius, radius);
+                    const point = polarToCartesian(angle, r);
+                    points.push({...point, feature, value: data[moduleIndex][feature], angle, r});
+                    
+                    if (featureIndex === 0) {
+                        pathData += `M ${point.x} ${point.y}`;
+                    } else {
+                        pathData += ` L ${point.x} ${point.y}`;
+                    }
+                });
+                pathData += ' Z';
+                
+                // Draw filled area
+                const area = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                area.setAttribute('d', pathData);
+                area.setAttribute('fill', color);
+                area.setAttribute('fill-opacity', '0.2');
+                area.setAttribute('stroke', 'none');
+                moduleGroup.appendChild(area);
+                
+                // Draw outline
+                const outline = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                outline.setAttribute('d', pathData);
+                outline.setAttribute('fill', 'none');
+                outline.setAttribute('stroke', color);
+                outline.setAttribute('stroke-width', lineWidth);
+                outline.setAttribute('opacity', opacity);
+                moduleGroup.appendChild(outline);
+                
+                // Draw interactive points
+                points.forEach((point, pointIndex) => {
+                    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+                    circle.setAttribute('cx', point.x);
+                    circle.setAttribute('cy', point.y);
+                    circle.setAttribute('r', '6');
+                    circle.setAttribute('fill', color);
+                    circle.setAttribute('stroke', 'white');
+                    circle.setAttribute('stroke-width', '2');
+                    circle.setAttribute('opacity', opacity);
+                    circle.style.cursor = 'grab';
+                    
+                    // Add data attributes for dragging
+                    circle.setAttribute('data-module', module.module);
+                    circle.setAttribute('data-feature', point.feature);
+                    circle.setAttribute('data-value', point.value);
+                    circle.setAttribute('data-angle', point.angle);
+                    
+                    // Add event listeners
+                    addPointEventListeners(circle, module, point);
+                    
+                    moduleGroup.appendChild(circle);
+                });
+            });
+            
+            document.getElementById('mainGroup').appendChild(moduleGroup);
+        }
+        
+        function addPointEventListeners(circle, module, point) {
+            circle.addEventListener('mousedown', (e) => {
+                isDragging = true;
+                dragData = {circle, module, point};
+                circle.style.cursor = 'grabbing';
+                e.preventDefault();
+            });
+            
+            circle.addEventListener('mouseover', (e) => {
+                if (!isDragging) {
+                    showTooltip(e, module, point);
+                }
+            });
+            
+            circle.addEventListener('mouseout', () => {
+                hideTooltip();
+            });
+        }
+        
+        function showTooltip(e, module, point) {
+            const tooltip = document.getElementById('tooltip');
+            tooltip.style.display = 'block';
+            tooltip.innerHTML = `
+                <strong>${module.module}</strong><br>
+                ${point.feature}: ${point.value.toLocaleString()}<br>
+                Normalized: ${(point.r / radius).toFixed(3)}
+            `;
+            tooltip.style.left = (e.pageX + 10) + 'px';
+            tooltip.style.top = (e.pageY - 10) + 'px';
+        }
+        
+        function hideTooltip() {
+            document.getElementById('tooltip').style.display = 'none';
+        }
+        
+        function addZoomFunctionality() {
+            svg.addEventListener('wheel', (e) => {
+                e.preventDefault();
+                const delta = e.deltaY > 0 ? 0.9 : 1.1;
+                currentScale = Math.max(0.1, Math.min(5, currentScale * delta));
+                document.getElementById('scaleSlider').value = currentScale;
+                document.getElementById('scaleValue').textContent = currentScale.toFixed(1);
+                redraw();
+            });
+            
+            // Global mouse events for dragging
+            document.addEventListener('mousemove', (e) => {
+                if (isDragging && dragData) {
+                    const rect = svg.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    
+                    // Calculate new radius from center
+                    const dx = x - centerX;
+                    const dy = y - centerY;
+                    const newRadius = Math.sqrt(dx * dx + dy * dy);
+                    const maxRadius = radius;
+                    const clampedRadius = Math.max(0, Math.min(newRadius, maxRadius));
+                    
+                    // Update the circle position
+                    const angle = dragData.point.angle;
+                    const newPoint = polarToCartesian(angle, clampedRadius);
+                    dragData.circle.setAttribute('cx', newPoint.x);
+                    dragData.circle.setAttribute('cy', newPoint.y);
+                    
+                    // Update the normalized value
+                    const normalizedValue = clampedRadius / radius / currentScale;
+                    const moduleIndex = normalizedData.findIndex(d => d.module === dragData.module.module);
+                    if (moduleIndex !== -1) {
+                        normalizedData[moduleIndex][dragData.point.feature] = normalizedValue;
+                        redrawModule(moduleIndex);
+                    }
+                }
+            });
+            
+            document.addEventListener('mouseup', () => {
+                if (isDragging && dragData) {
+                    dragData.circle.style.cursor = 'grab';
+                    isDragging = false;
+                    dragData = null;
+                }
+            });
+        }
+        
+        function redrawModule(moduleIndex) {
+            // This is a simplified redraw - in a full implementation, 
+            // you'd want to update just the specific module's path and points
+            redraw();
+        }
+        
+        function redraw() {
+            initSVG();
+        }
+        
+        function createLegend() {
+            const legendItems = document.getElementById('legendItems');
+            legendItems.innerHTML = '';
+            
+            data.forEach((module, index) => {
+                const item = document.createElement('div');
+                item.className = 'legend-item';
+                item.style.opacity = visibleModules.has(module.module) ? '1' : '0.5';
+                
+                const color = document.createElement('div');
+                color.className = 'legend-color';
+                color.style.backgroundColor = colors[index];
+                
+                const text = document.createElement('div');
+                text.className = 'legend-text';
+                text.textContent = module.module;
+                
+                item.appendChild(color);
+                item.appendChild(text);
+                
+                item.addEventListener('click', () => {
+                    if (visibleModules.has(module.module)) {
+                        visibleModules.delete(module.module);
+                    } else {
+                        visibleModules.add(module.module);
+                    }
+                    item.style.opacity = visibleModules.has(module.module) ? '1' : '0.5';
+                    redraw();
+                });
+                
+                legendItems.appendChild(item);
+            });
+        }
+        
+        function createStats() {
+            const statsGrid = document.getElementById('statsGrid');
+            
+            const totalModules = data.length;
+            const topWeekly = data.reduce((prev, current) => (prev.last_week > current.last_week) ? prev : current);
+            const mostStars = data.reduce((prev, current) => (prev.stars > current.stars) ? prev : current);
+            const oldest = data.reduce((prev, current) => (prev.age_years > current.age_years) ? prev : current);
+            
+            const stats = [
+                `Total Modules: ${totalModules}`,
+                `Top Downloaded (Week): ${topWeekly.module} (${topWeekly.last_week.toLocaleString()})`,
+                `Most Starred: ${mostStars.module} (${mostStars.stars.toLocaleString()} stars)`,
+                `Oldest Module: ${oldest.module} (${oldest.age_years} years)`
+            ];
+            
+            statsGrid.innerHTML = stats.map(stat => `<div>${stat}</div>`).join('');
+        }
+        
+        // Control event listeners
+        document.getElementById('scaleSlider').addEventListener('input', (e) => {
+            currentScale = parseFloat(e.target.value);
+            document.getElementById('scaleValue').textContent = currentScale.toFixed(1);
+            redraw();
+        });
+        
+        document.getElementById('lineWidthSlider').addEventListener('input', (e) => {
+            document.getElementById('lineWidthValue').textContent = e.target.value;
+            redraw();
+        });
+        
+        document.getElementById('opacitySlider').addEventListener('input', (e) => {
+            document.getElementById('opacityValue').textContent = e.target.value;
+            redraw();
+        });
+        
+        function resetView() {
+            currentScale = 1;
+            document.getElementById('scaleSlider').value = 1;
+            document.getElementById('scaleValue').textContent = '1.0';
+            document.getElementById('lineWidthSlider').value = 2.5;
+            document.getElementById('lineWidthValue').textContent = '2.5';
+            document.getElementById('opacitySlider').value = 0.8;
+            document.getElementById('opacityValue').textContent = '0.8';
+            visibleModules = new Set(data.map(d => d.module));
+            redraw();
+            createLegend();
+        }
+        
+        function toggleGrid() {
+            showGrid = !showGrid;
+            redraw();
+        }
+        
+        // Initialize the plot
+        initSVG();
+        createLegend();
+        createStats();
+    </script>
+</body>
+</html>
