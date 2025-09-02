@@ -1,0 +1,489 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive PySAL Ecosystem Rose Plot</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        /* Tailwind-inspired CSS */
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f9fafb;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .container {
+            max-width: 1600px;
+            width: 100%;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+        }
+        .controls, .chart, .legend, .metrics {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .controls {
+            flex: 1;
+            min-width: 250px;
+        }
+        .chart {
+            flex: 4;
+            min-width: 700px;
+        }
+        .legend, .metrics {
+            flex: 1;
+            min-width: 250px;
+        }
+        .slider-container {
+            margin-bottom: 20px;
+        }
+        .error-message {
+            color: red;
+            display: none;
+        }
+        .text-xl {
+            font-size: 1.25rem;
+        }
+        .font-bold {
+            font-weight: 700;
+        }
+        .mb-4 {
+            margin-bottom: 1rem;
+        }
+        .mb-2 {
+            margin-bottom: 0.5rem;
+        }
+        .text-sm {
+            font-size: 0.875rem;
+        }
+        .text-gray-600 {
+            color: #4b5563;
+        }
+        .bg-blue-500 {
+            background-color: #3b82f6;
+        }
+        .text-white {
+            color: white;
+        }
+        .px-4 {
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+        .py-2 {
+            padding-top: 0.5rem;
+            padding-bottom: 0.5rem;
+        }
+        .rounded {
+            border-radius: 0.375rem;
+        }
+        .hover\:bg-blue-600:hover {
+            background-color: #2563eb;
+        }
+        .w-full {
+            width: 100%;
+        }
+        .flex {
+            display: flex;
+        }
+        .items-center {
+            align-items: center;
+        }
+        .cursor-pointer {
+            cursor: pointer;
+        }
+        .hover\:bg-gray-200:hover {
+            background-color: #e5e7eb;
+        }
+        .px-2 {
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+        .py-1 {
+            padding-top: 0.25rem;
+            padding-bottom: 0.25rem;
+        }
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            pointer-events: none;
+            max-width: 300px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="controls">
+            <h2 class="text-xl font-bold mb-4">Interactive Controls</h2>
+            <div class="slider-container">
+                <label for="scale-factor">Scale Factor: <span id="scale-value">0.9</span></label>
+                <input type="range" id="scale-factor" min="0.5" max="2.0" step="0.1" value="0.9" class="w-full">
+            </div>
+            <div class="slider-container">
+                <label for="line-width">Line Width: <span id="line-width-value">2.5</span></label>
+                <input type="range" id="line-width" min="0.5" max="5.0" step="0.1" value="2.5" class="w-full">
+            </div>
+            <div class="slider-container">
+                <label for="opacity">Opacity: <span id="opacity-value">0.8</span></label>
+                <input type="range" id="opacity" min="0.1" max="1.0" step="0.1" value="0.8" class="w-full">
+            </div>
+            <button id="reset-view" class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600">Reset View</button>
+            <p class="mt-4 text-sm text-gray-600">
+                <strong>Scale Factor:</strong> Adjusts the overall size of all module polygons<br>
+                <strong>Line Width:</strong> Controls the thickness of polygon outlines<br>
+                <strong>Opacity:</strong> Changes transparency of lines and points<br>
+                <strong>Mouse Wheel:</strong> Zoom in/out when hovering over the chart<br>
+                <strong>Reset View:</strong> Returns to initial view (pysal only)<br>
+                <strong>Hover:</strong> Hover over markers or lines to view raw module data (now with percentages and ranks for downloads)
+            </p>
+            <p id="error-message" class="error-message">An error occurred while rendering the plot. Please try resetting the view.</p>
+        </div>
+        <div class="chart">
+            <h2 class="text-xl font-bold mb-4">PySAL Ecosystem: Multi-Dimensional Performance Rose Plot</h2>
+            <svg id="rose-plot" width="100%" height="600"></svg>
+        </div>
+        <div class="legend">
+            <h2 class="text-xl font-bold mb-4">PySAL Modules</h2>
+            <p class="text-sm text-gray-600 mb-2">Click module buttons to show/hide sub-modules (initially showing pysal)</p>
+            <div id="module-legend"></div>
+        </div>
+        <div class="metrics">
+            <h2 class="text-xl font-bold mb-4">Performance Metrics Overview</h2>
+            <p id="metrics-content" class="text-sm">• Total Modules: 15<br>• Top PIP Install (Last month): mapclassify (498,520)<br>• Top Conda Install (Total): mapclassify (3,770,985)<br>• Most Starred: pysal (1,416 stars)<br>• Oldest Module: pysal (12.5 years)</p>
+        </div>
+    </div>
+    <div class="tooltip" id="tooltip" style="display: none;"></div>
+
+    <script>
+        // Filtered data for 15 PySAL submodules
+        const rawData = [
+            { name: "access", pypi_last_month: 25773, conda_total_downloads: 166540, stars: 25, forks: 15, age_years: 5.5, contributors: 13, color: "#1f77b4", visible: false },
+            { name: "esda", pypi_last_month: 57884, conda_total_downloads: 378948, stars: 225, forks: 60, age_years: 8.6, contributors: 30, color: "#aec7e8", visible: false },
+            { name: "giddy", pypi_last_month: 52650, conda_total_downloads: 223311, stars: 77, forks: 27, age_years: 8.3, contributors: 12, color: "#ff7f0e", visible: false },
+            { name: "inequality", pypi_last_month: 24650, conda_total_downloads: 178320, stars: 32, forks: 17, age_years: 7.0, contributors: 10, color: "#ffbb78", visible: false },
+            { name: "libpysal", pypi_last_month: 122754, conda_total_downloads: 758173, stars: 275, forks: 80, age_years: 8.4, contributors: 30, color: "#2ca02c", visible: false },
+            { name: "mapclassify", pypi_last_month: 498520, conda_total_downloads: 3770985, stars: 146, forks: 32, age_years: 8.2, contributors: 23, color: "#98df8a", visible: false },
+            { name: "mgwr", pypi_last_month: 26907, conda_total_downloads: 214897, stars: 396, forks: 131, age_years: 7.4, contributors: 11, color: "#d62728", visible: false },
+            { name: "pointpats", pypi_last_month: 33087, conda_total_downloads: 270199, stars: 91, forks: 30, age_years: 8.6, contributors: 15, color: "#ff9896", visible: false },
+            { name: "pysal", pypi_last_month: 28755, conda_total_downloads: 685462, stars: 1416, forks: 312, age_years: 12.5, contributors: 30, color: "#9467bd", visible: true },
+            { name: "segregation", pypi_last_month: 26175, conda_total_downloads: 208590, stars: 118, forks: 29, age_years: 6.6, contributors: 11, color: "#c5b0d5", visible: false },
+            { name: "splot", pypi_last_month: 25910, conda_total_downloads: 195027, stars: 100, forks: 27, age_years: 8.2, contributors: 30, color: "#8c564b", visible: false },
+            { name: "spopt", pypi_last_month: 27416, conda_total_downloads: 243785, stars: 339, forks: 55, age_years: 6.4, contributors: 19, color: "#c49c94", visible: false },
+            { name: "spreg", pypi_last_month: 32994, conda_total_downloads: 241905, stars: 79, forks: 26, age_years: 7.2, contributors: 18, color: "#e377c2", visible: false },
+            { name: "spaghetti", pypi_last_month: 27424, conda_total_downloads: 293528, stars: 276, forks: 73, age_years: 8.3, contributors: 17, color: "#f7b6d2", visible: false },
+            { name: "spglm", pypi_last_month: 26778, conda_total_downloads: 201082, stars: 34, forks: 23, age_years: 8.5, contributors: 0, color: "#7f7f7f", visible: false }
+        ];
+
+        // Compute total pypi_last_month and total conda_total_downloads for PySAL modules only
+        const totalPypiLastMonth = rawData.reduce((sum, d) => sum + d.pypi_last_month, 0);
+        const totalConda = rawData.reduce((sum, d) => sum + d.conda_total_downloads, 0);
+
+        // Compute ranks for pypi_last_month and conda_total_downloads (1 = highest) for PySAL modules
+        const sortedPypi = [...rawData].sort((a, b) => b.pypi_last_month - a.pypi_last_month);
+        const pypiRanks = {};
+        sortedPypi.forEach((d, i) => pypiRanks[d.name] = i + 1);
+        const sortedConda = [...rawData].sort((a, b) => b.conda_total_downloads - a.conda_total_downloads);
+        const condaRanks = {};
+        sortedConda.forEach((d, i) => condaRanks[d.name] = i + 1);
+
+        // Normalize data for plotting
+        const features = ['pypi_last_month', 'conda_total_downloads', 'stars', 'forks', 'age_years', 'contributors'];
+        const feature_labels = ['PIP Install\n(Last month, %)', 'Conda Install\n(Total, %)', 'GitHub\nStars', 'GitHub\nForks', 'Age\n(Years)', 'Contributors'];
+        const modules = rawData.map(d => {
+            const values = [
+                (d.pypi_last_month / totalPypiLastMonth), // Percentage of total pypi_last_month
+                (d.conda_total_downloads / totalConda), // Percentage of total conda_total_downloads
+                (d.stars !== 0 ? d.stars / 1416 : 0), // Min-max normalized stars (max 1416 from pysal)
+                (d.forks !== 0 ? d.forks / 312 : 0), // Min-max normalized forks (max 312 from pysal)
+                (d.age_years !== 0 ? d.age_years / 12.5 : 0), // Min-max normalized age_years (max 12.5 from pysal)
+                (d.contributors !== 0 ? d.contributors / 30 : 0) // Min-max normalized contributors (max 30 from data)
+            ];
+            const size = values.reduce((sum, val) => sum + val, 0); // Sum of normalized values for area proxy
+            return { name: d.name, values, raw: d, color: d.color, visible: d.visible, pypi_rank: pypiRanks[d.name], conda_rank: condaRanks[d.name], size };
+        });
+
+        // Chart setup
+        const width = 600, height = 600, radius = Math.min(width, height) / 2 - 50;
+        const svg = d3.select("#rose-plot")
+            .attr("viewBox", `0 0 ${width} ${height}`)
+            .append("g")
+            .attr("transform", `translate(${width / 2}, ${height / 2})`);
+
+        const numVars = features.length;
+        const angleSlice = 2 * Math.PI / numVars;
+        const angles = d3.range(numVars).map(i => i * angleSlice);
+        const getX = (angle, r) => r * Math.cos(angle);
+        const getY = (angle, r) => r * Math.sin(angle);
+
+        let scaleFactor = 0.9, lineWidth = 2.5, opacity = 0.8;
+
+        // Tooltip setup
+        const tooltip = d3.select("#tooltip");
+        function showTooltip(event, d, module) {
+            const raw = module.raw;
+            const pypiPct = (raw.pypi_last_month / totalPypiLastMonth * 100).toFixed(2);
+            const condaPct = (raw.conda_total_downloads / totalConda * 100).toFixed(2);
+            const content = `
+                <strong>${module.name}</strong><br>
+                PIP Install (Last month): ${raw.pypi_last_month.toLocaleString()} (${pypiPct}%, Rank: ${module.pypi_rank}/15)<br>
+                Conda Install (Total): ${raw.conda_total_downloads.toLocaleString()} (${condaPct}%, Rank: ${module.conda_rank}/15)<br>
+                GitHub Stars: ${raw.stars}<br>
+                GitHub Forks: ${raw.forks}<br>
+                Age (Years): ${raw.age_years !== 0 ? raw.age_years.toFixed(1) : '-'}<br>
+                Contributors: ${raw.contributors !== 0 ? raw.contributors : '-'}
+            `;
+            tooltip.html(content)
+                .style("left", (event.pageX + 10) + "px")
+                .style("top", (event.pageY - 10) + "px")
+                .style("display", "block");
+        }
+        function hideTooltip() {
+            tooltip.style("display", "none");
+        }
+
+        // Draw rose plot
+        function drawPlot() {
+            try {
+                svg.selectAll("*").remove();
+
+                const currentRadius = radius * scaleFactor;
+
+                // Concentric circles
+                [0.2, 0.4, 0.6, 0.8, 1.0].forEach(level => {
+                    svg.append("circle")
+                        .attr("r", currentRadius * level)
+                        .attr("fill", "none")
+                        .attr("stroke", "gray")
+                        .attr("stroke-width", 0.8)
+                        .attr("opacity", 0.3);
+                });
+
+                // Level labels
+                svg.selectAll(".level-label")
+                    .data([0.2, 0.4, 0.6, 0.8, 1.0])
+                    .join("text")
+                    .attr("class", "level-label")
+                    .attr("x", -currentRadius - 10)
+                    .attr("y", d => -currentRadius * d)
+                    .attr("dy", ".35em")
+                    .attr("text-anchor", "end")
+                    .attr("font-size", 10)
+                    .attr("opacity", 0.8)
+                    .text(d => d.toFixed(1));
+
+                // Axes
+                svg.selectAll(".axisLine")
+                    .data(angles)
+                    .join("line")
+                    .attr("class", "axisLine")
+                    .attr("x1", 0)
+                    .attr("y1", 0)
+                    .attr("x2", d => getX(d, currentRadius))
+                    .attr("y2", d => getY(d, currentRadius))
+                    .attr("stroke", "gray")
+                    .attr("stroke-width", 1);
+
+                // Axis labels with adjusted positioning
+                svg.selectAll(".axisLabel")
+                    .data(feature_labels)
+                    .join("text")
+                    .attr("class", "axisLabel")
+                    .attr("x", (d, i) => getX(angles[i], currentRadius * 1.3))
+                    .attr("y", (d, i) => {
+                        let y = getY(angles[i], currentRadius * 1.3);
+                        if (Math.sin(angles[i]) < 0) y += 20; // Extra offset for bottom labels
+                        return y;
+                    })
+                    .attr("dy", (d, i) => Math.sin(angles[i]) < 0 ? "1.2em" : ".35em")
+                    .attr("text-anchor", (d, i) => {
+                        const a = angles[i];
+                        return Math.cos(a) > 0.1 ? "start" : Math.cos(a) < -0.1 ? "end" : "middle";
+                    })
+                    .attr("font-size", 12)
+                    .attr("font-weight", "bold")
+                    .text(d => d);
+
+                // Sort visible modules by total area (size) descending (largest first, smallest on top)
+                const visibleModules = modules.filter(d => d.visible).sort((a, b) => b.size - a.size);
+
+                // Module groups
+                visibleModules.forEach(module => {
+                    const dataPoints = module.values.map((v, i) => ({ angle: angles[i], value: v }));
+                    const lineGen = d3.line()
+                        .x(p => getX(p.angle, p.value * currentRadius))
+                        .y(p => getY(p.angle, p.value * currentRadius))
+                        .defined(p => isFinite(p.value));
+
+                    const group = svg.append("g");
+
+                    // Fill
+                    group.append("path")
+                        .attr("d", lineGen(dataPoints) + "Z")
+                        .attr("fill", module.color)
+                        .attr("fill-opacity", 0.2)
+                        .attr("stroke", "none")
+                        .on("mouseover", (event, d) => showTooltip(event, d, module))
+                        .on("mousemove", (event, d) => showTooltip(event, d, module))
+                        .on("mouseout", hideTooltip);
+
+                    // Emphasis line
+                    group.append("path")
+                        .attr("d", lineGen(dataPoints) + "Z")
+                        .attr("fill", "none")
+                        .attr("stroke", module.color)
+                        .attr("stroke-width", lineWidth + 1)
+                        .attr("opacity", 0.4)
+                        .on("mouseover", (event, d) => showTooltip(event, d, module))
+                        .on("mousemove", (event, d) => showTooltip(event, d, module))
+                        .on("mouseout", hideTooltip);
+
+                    // Main line
+                    group.append("path")
+                        .attr("d", lineGen(dataPoints) + "Z")
+                        .attr("fill", "none")
+                        .attr("stroke", module.color)
+                        .attr("stroke-width", lineWidth)
+                        .attr("opacity", 0.9)
+                        .on("mouseover", (event, d) => showTooltip(event, d, module))
+                        .on("mousemove", (event, d) => showTooltip(event, d, module))
+                        .on("mouseout", hideTooltip);
+
+                    // Markers
+                    group.selectAll("circle")
+                        .data(dataPoints)
+                        .join("circle")
+                        .attr("cx", p => getX(p.angle, p.value * currentRadius))
+                        .attr("cy", p => getY(p.angle, p.value * currentRadius))
+                        .attr("r", 5)
+                        .attr("fill", module.color)
+                        .attr("opacity", opacity)
+                        .on("mouseover", (event, d) => showTooltip(event, d, module))
+                        .on("mousemove", (event, d) => showTooltip(event, d, module))
+                        .on("mouseout", hideTooltip);
+                });
+            } catch (error) {
+                console.error("Error rendering plot:", error);
+                d3.select("#error-message").style("display", "block");
+            }
+        }
+
+        // Zoom behavior
+        const zoom = d3.zoom()
+            .scaleExtent([0.5, 3])
+            .on("zoom", (event) => {
+                svg.attr("transform", event.transform);
+            });
+        d3.select("#rose-plot").call(zoom);
+
+        // Legend
+        const legend = d3.select("#module-legend")
+            .selectAll("button")
+            .data(modules)
+            .join("button")
+            .attr("class", "w-full flex items-center mb-2 cursor-pointer rounded px-2 py-1 hover:bg-gray-200")
+            .on("click", function(event, d) {
+                d.visible = !d.visible;
+                d3.select(this).selectAll("span").style("opacity", d.visible ? 1 : 0.3);
+                drawPlot();
+            });
+        legend.append("span")
+            .style("width", "20px")
+            .style("height", "20px")
+            .style("background-color", d => d.color)
+            .style("display", "inline-block")
+            .style("margin-right", "8px")
+            .style("opacity", d => d.visible ? 1 : 0.3);
+        legend.append("span")
+            .text(d => d.name)
+            .style("opacity", d => d.visible ? 1 : 0.3);
+
+        // Sliders
+        d3.select("#scale-factor").on("input", function() {
+            scaleFactor = +this.value;
+            d3.select("#scale-value").text(scaleFactor.toFixed(1));
+            drawPlot();
+        });
+        d3.select("#line-width").on("input", function() {
+            lineWidth = +this.value;
+            d3.select("#line-width-value").text(lineWidth.toFixed(1));
+            drawPlot();
+        });
+        d3.select("#opacity").on("input", function() {
+            opacity = +this.value;
+            d3.select("#opacity-value").text(opacity.toFixed(1));
+            drawPlot();
+        });
+
+        // Reset button
+        d3.select("#reset-view").on("click", () => {
+            scaleFactor = 0.9;
+            lineWidth = 2.5;
+            opacity = 0.8;
+            modules.forEach(d => d.visible = false);
+            modules.find(d => d.name === "pysal").visible = true;
+            d3.select("#scale-factor").property("value", scaleFactor);
+            d3.select("#scale-value").text(scaleFactor.toFixed(1));
+            d3.select("#line-width").property("value", lineWidth);
+            d3.select("#line-width-value").text(lineWidth.toFixed(1));
+            d3.select("#opacity").property("value", opacity);
+            d3.select("#opacity-value").text(opacity.toFixed(1));
+            d3.select("#rose-plot").call(zoom.transform, d3.zoomIdentity);
+            d3.select("#module-legend").selectAll("span").style("opacity", d => d.visible ? 1 : 0.3);
+            drawPlot();
+        });
+
+        // Initial draw
+        drawPlot();
+    </script>
+</body>
+</html>
